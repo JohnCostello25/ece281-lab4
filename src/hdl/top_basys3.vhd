@@ -79,6 +79,7 @@ entity top_basys3 is
         btnU    :   in std_logic; -- master_reset
         btnL    :   in std_logic; -- clk_reset
         btnR    :   in std_logic; -- fsm_reset
+        btnD    :   in std_logic; -- tdm reset
         
         -- outputs
         led :   out std_logic_vector(15 downto 0);
@@ -117,10 +118,30 @@ architecture top_basys3_arch of top_basys3 is
             );
         end component sevenSegDecoder;
     
+    component tdm4 is
+        generic ( constant k_WIDTH : natural  := 4);
+        port(  i_clk		: in  STD_LOGIC;
+               i_reset        : in  STD_LOGIC; -- asynchronous
+               i_D3         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+               i_D2         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+               i_D1         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+               i_D0         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+               o_data        : out STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+               o_sel        : out STD_LOGIC_VECTOR (3 downto 0)
+               );
+        end component tdm4;
+            
+    
     signal w_reset_clock : std_logic;
     signal w_reset_elevator: std_logic;
+    signal w_reset_tdm : std_logic;
     signal w_clk : std_logic;
+    signal w_clk_tdm : std_logic;
     signal w_floor : std_logic_vector (3 downto 0) := "0010";
+    signal w_sel : std_logic_vector (3 downto 0);
+    signal w_data : std_logic_vector (3 downto 0);
+    signal w_D3 : std_logic_vector (3 downto 0);
+    signal w_D2 : std_logic_vector (3 downto 0);
     
     
 begin
@@ -131,6 +152,14 @@ begin
         i_reset => w_reset_clock,
         o_clk => w_clk
         );
+        
+    clock_divider2_inst: clock_divider
+        generic map(k_DIV => 25000)
+        port map(
+            i_clk => clk,
+            i_reset => w_reset_clock,
+            o_clk => w_clk_tdm
+            );
 	
 	elevator_controller_fsm1_inst: elevator_controller_fsm
 	port map(
@@ -143,13 +172,53 @@ begin
 	
 	sevenSegDecoder1_inst: sevenSegDecoder
 	port map(
-	   i_D => w_floor,
+	   i_D => w_data,
 	   o_S => seg
+	   );
+	
+	tdm41_inst: tdm4
+	port map(
+	   i_clk => w_clk_tdm,
+	   i_reset => w_reset_tdm,
+	   i_D3 => w_D3,
+	   i_D2 => w_D2,
+	   i_D1 => "0000",
+	   i_D0 => "0000",
+	   o_data => w_data,
+	   o_sel => w_sel
 	   );
 	
 	-- CONCURRENT STATEMENTS ----------------------------
 	w_reset_clock <= btnL OR btnU;
 	w_reset_elevator <= btnU OR btnR;
+	w_reset_tdm <= btnD or btnU;
+	
+	w_D3 <=    "0001" when (w_floor = "1010") else
+	           "0001" when (w_floor = "1011") else
+	           "0001" when (w_floor = "1100") else
+	           "0001" when (w_floor = "1101") else
+	           "0001" when (w_floor = "1110") else
+	           "0001" when (w_floor = "1111") else
+	           "0001" when (w_floor = "0000") else --16 overflow
+	           "0000";
+
+	w_D2 <=    "0001" when (w_floor = "0001") else
+	           "0010" when (w_floor = "0010") else
+	           "0011" when (w_floor = "0011") else
+	           "0100" when (w_floor = "0100") else
+	           "0101" when (w_floor = "0101") else
+	           "0110" when (w_floor = "0110") else
+	           "0111" when (w_floor = "0111") else
+	           "1000" when (w_floor = "1000") else
+	           "1001" when (w_floor = "1001") else
+	           "0000" when (w_floor = "1010") else
+	           "0001" when (w_floor = "1011") else
+	           "0010" when (w_floor = "1100") else
+	           "0011" when (w_floor = "1101") else
+	           "0100" when (w_floor = "1110") else
+	           "0101" when (w_floor = "1111") else
+	           "0110" when (w_floor = "0000") else --16 overflow
+	           "0000";	
 	
 	-- LED 15 gets the FSM slow clock signal. The rest are grounded.
 	led(15) <= w_clk;
@@ -157,9 +226,9 @@ begin
 	-- leave unused switches UNCONNECTED. Ignore any warnings this causes.
 	
 	-- wire up active-low 7SD anodes (an) as required
-	an(2) <= '0';
 	-- Tie any unused anodes to power ('1') to keep them off
-	an(3) <= '1';
+	an(3) <= '0' when (w_sel = "0111") else '1';
+	an(2) <= '0' when (w_sel = "1011") else '1';
 	an(1) <= '1';
 	an(0) <= '1';
 	
